@@ -7,15 +7,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 load_dotenv()
 
+import bot.trade_log as tlog
+tlog.load()
+
 from bot.alpaca_client import get_account, get_positions
-from bot.strategy import run_scan, trade_log
+from bot.strategy import run_scan
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Global state
 _live_trading = os.getenv("LIVE_TRADING", "false").lower() == "true"
 _scan_interval = int(os.getenv("SCAN_INTERVAL_MINUTES", "15"))
 _last_scan: dict = {}
@@ -64,12 +66,14 @@ def positions():
 @app.route("/api/trades")
 def trades():
     limit = request.args.get("limit", 50, type=int)
-    return jsonify(trade_log[-limit:])
+    return jsonify(tlog.trade_log[-limit:])
 
 
 @app.route("/api/scan", methods=["POST"])
 def scan():
+    global _last_scan
     result = run_scan(live=_live_trading)
+    _last_scan = {"time": datetime.utcnow().isoformat(), **result}
     return jsonify(result)
 
 

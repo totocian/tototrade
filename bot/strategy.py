@@ -6,11 +6,10 @@ from bot.alpaca_client import (
     place_market_order, close_position, get_tradable_us_stocks
 )
 from bot.indicators import combined_score
+from bot.notifier import send_trade_email
+import bot.trade_log as tlog
 
 logger = logging.getLogger(__name__)
-
-# In-memory trade log shared with Flask app
-trade_log: list[dict] = []
 
 BUY_THRESHOLD = 2
 SELL_THRESHOLD = -1
@@ -24,6 +23,26 @@ def _max_positions() -> int:
     return int(os.getenv("MAX_POSITIONS", "10"))
 
 
+def _stop_loss_pct() -> float:
+    return float(os.getenv("STOP_LOSS_PCT", "0.05"))
+
+
+def _allowed_sectors() -> set[str]:
+    raw = os.getenv("ALLOWED_SECTORS", "")
+    if not raw.strip():
+        return set()
+    return {s.strip().lower() for s in raw.split(",")}
+
+
+def _get_sector(symbol: str) -> str:
+    try:
+        import yfinance as yf
+        info = yf.Ticker(symbol).info
+        return (info.get("sector") or "").lower()
+    except Exception:
+        return ""
+
+
 def run_scan(live: bool = False) -> dict:
     logger.info("Starting scan (live=%s)", live)
     try:
@@ -32,6 +51,9 @@ def run_scan(live: bool = False) -> dict:
     except Exception as e:
         logger.error("Failed to fetch account: %s", e)
         return {"error": str(e)}
+
+    allowed_sectors = _allowed_sectors()
+    stop_loss = _stop_loss_pct()
 
     # --- Sell pass ---
     try:
@@ -45,27 +67,40 @@ def run_scan(live: bool = False) -> dict:
 
     for pos in positions:
         sym = pos["symbol"]
-        try:
-            df = get_bars(sym, days=90, live=live)
-            if df is None or len(df) < 50:
-                continue
-            score = combined_score(df)
-            if score <= SELL_THRESHOLD:
+        plpc = pos.get("unrealized_plpc", 0.0)
+        reason = None
+
+        # Stop-loss check
+        if plpc <= -stop_loss:
+            reason = f"stop-loss ({plpc*100:.1f}%)"
+        else:
+            try:
+                df = get_bars(sym, days=90, live=live)
+                if df is not None and len(df) >= 50:
+                    score = combined_score(df)
+                    if score <= SELL_THRESHOLD:
+                        reason = f"score={score}"
+            except Exception as e:
+                logger.warning("Error evaluating %s for sell: %s", sym, e)
+
+        if reason:
+            try:
                 result = close_position(sym, live=live)
                 entry = {
                     "time": datetime.utcnow().isoformat(),
                     "symbol": sym,
                     "action": "SELL",
-                    "score": score,
+                    "score": combined_score(get_bars(sym, days=90, live=live)) if "score" in reason else None,
+                    "reason": reason,
                     "order_id": result.get("order_id"),
                 }
-                trade_log.append(entry)
+                tlog.append(entry)
+                send_trade_email(entry)
                 sold.append(sym)
-                logger.info("Sold %s (score=%d)", sym, score)
-        except Exception as e:
-            logger.warning("Error evaluating %s for sell: %s", sym, e)
+                logger.info("Sold %s (%s)", sym, reason)
+            except Exception as e:
+                logger.warning("Failed to close %s: %s", sym, e)
 
-    # Update held symbols after sells
     held_symbols -= set(sold)
     open_slots = _max_positions() - len(held_symbols)
 
@@ -95,13 +130,23 @@ def run_scan(live: bool = False) -> dict:
         except Exception as e:
             logger.debug("Skipping %s: %s", sym, e)
 
-    # Sort by score descending, take top slots
     candidates.sort(key=lambda x: x[1], reverse=True)
-    candidates = candidates[:open_slots]
 
     trade_amount = portfolio_value * _risk_per_trade()
 
     for sym, score in candidates:
+        if len(bought) >= open_slots:
+            break
+
+        # Sector filter
+        if allowed_sectors:
+            sector = _get_sector(sym)
+            if sector not in allowed_sectors:
+                logger.debug("Skipping %s — sector '%s' not in allowed list", sym, sector)
+                continue
+        else:
+            sector = ""
+
         try:
             df = get_bars(sym, days=5, live=live)
             if df is None or df.empty:
@@ -118,11 +163,13 @@ def run_scan(live: bool = False) -> dict:
                 "score": score,
                 "qty": qty,
                 "price": price,
+                "sector": sector,
                 "order_id": result.get("id"),
             }
-            trade_log.append(entry)
+            tlog.append(entry)
+            send_trade_email(entry)
             bought.append(sym)
-            logger.info("Bought %s qty=%.4f score=%d", sym, qty, score)
+            logger.info("Bought %s qty=%.4f score=%d sector=%s", sym, qty, score, sector)
         except Exception as e:
             logger.warning("Failed to buy %s: %s", sym, e)
 
