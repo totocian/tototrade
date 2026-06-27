@@ -5,6 +5,7 @@ from bot.alpaca_client import (
     get_account, get_positions, get_bars,
     place_market_order, close_position, get_tradable_us_stocks
 )
+from bot.universe import get_universe
 from bot.indicators import combined_score
 from bot.notifier import send_trade_email
 import bot.trade_log as tlog
@@ -110,11 +111,7 @@ def run_scan(live: bool = False) -> dict:
         logger.info("No open slots for new positions")
         return {"sold": sold, "bought": bought}
 
-    try:
-        universe = get_tradable_us_stocks(live)
-    except Exception as e:
-        logger.error("Failed to fetch tradable stocks: %s", e)
-        universe = []
+    universe = get_universe()
 
     candidates = []
     for sym in universe:
