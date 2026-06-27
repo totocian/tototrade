@@ -17,5 +17,15 @@ SP500 = [
 ]
 
 
-def get_universe() -> list[str]:
-    return list(SP500)
+CRYPTO = [
+    "BTC/USD", "ETH/USD", "SOL/USD", "AVAX/USD", "LINK/USD",
+    "DOGE/USD", "SHIB/USD", "LTC/USD", "BCH/USD", "UNI/USD",
+    "AAVE/USD", "DOT/USD", "MATIC/USD", "XRP/USD", "ADA/USD",
+]
+
+
+def get_universe(include_crypto: bool = False) -> list[tuple[str, bool]]:
+    stocks = [(s, False) for s in SP500]
+    if include_crypto:
+        return stocks + [(c, True) for c in CRYPTO]
+    return stocks

@@ -86,6 +86,18 @@
           style="width:100%;background:#0d1117;border:1px solid #30363d;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:14px;" />
         <div style="font-size:11px;color:#8b949e;margin-top:4px;">Comma-separated sectors to trade. Leave empty for all.</div>
       </div>
+      <div style="display:flex;flex-direction:column;justify-content:center;">
+        <label style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b949e;display:block;margin-bottom:10px;">Crypto Trading</label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <div style="position:relative;width:44px;height:24px;">
+            <input type="checkbox" id="s-crypto" style="opacity:0;width:0;height:0;position:absolute;" />
+            <span id="s-crypto-track" style="position:absolute;inset:0;border-radius:24px;background:#30363d;transition:background .2s;"></span>
+            <span id="s-crypto-thumb" style="position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;"></span>
+          </div>
+          <span style="font-size:13px;color:#c9d1d9;">Include BTC, ETH, SOL + more</span>
+        </label>
+        <div style="font-size:11px;color:#8b949e;margin-top:6px;">Crypto trades 24/7 — no market hours</div>
+      </div>
     </div>
   </section>
 
@@ -192,6 +204,14 @@ document.getElementById('scan-btn').addEventListener('click', async () => {
 
 document.getElementById('refresh-positions-btn').addEventListener('click', loadPositions);
 
+const cryptoCheck = document.getElementById('s-crypto');
+const cryptoTrack = document.getElementById('s-crypto-track');
+const cryptoThumb = document.getElementById('s-crypto-thumb');
+cryptoCheck.addEventListener('change', () => {
+  cryptoTrack.style.background = cryptoCheck.checked ? '#1f6feb' : '#30363d';
+  cryptoThumb.style.transform = cryptoCheck.checked ? 'translateX(20px)' : 'translateX(0)';
+});
+
 async function loadSettings() {
   const res = await fetch('/api/settings');
   const s = await res.json();
@@ -199,6 +219,9 @@ async function loadSettings() {
   document.getElementById('s-risk').value = s.risk_per_trade;
   document.getElementById('s-max-pos').value = s.max_positions;
   document.getElementById('s-sectors').value = s.allowed_sectors || '';
+  cryptoCheck.checked = !!s.include_crypto;
+  cryptoTrack.style.background = cryptoCheck.checked ? '#1f6feb' : '#30363d';
+  cryptoThumb.style.transform = cryptoCheck.checked ? 'translateX(20px)' : 'translateX(0)';
 }
 
 document.getElementById('save-settings-btn').addEventListener('click', async () => {
@@ -207,6 +230,7 @@ document.getElementById('save-settings-btn').addEventListener('click', async () 
     risk_per_trade: parseFloat(document.getElementById('s-risk').value),
     max_positions: parseInt(document.getElementById('s-max-pos').value),
     allowed_sectors: document.getElementById('s-sectors').value.trim(),
+    include_crypto: cryptoCheck.checked,
   };
   const res = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   if (res.ok) toast('Settings saved');

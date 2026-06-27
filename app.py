@@ -29,6 +29,7 @@ _settings = {
     "allowed_sectors": os.getenv("ALLOWED_SECTORS", ""),
     "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.02")),
     "max_positions": int(os.getenv("MAX_POSITIONS", "10")),
+    "include_crypto": os.getenv("INCLUDE_CRYPTO", "false").lower() == "true",
 }
 
 
@@ -37,6 +38,7 @@ def _apply_settings():
     os.environ["ALLOWED_SECTORS"] = _settings["allowed_sectors"]
     os.environ["RISK_PER_TRADE"] = str(_settings["risk_per_trade"])
     os.environ["MAX_POSITIONS"] = str(_settings["max_positions"])
+    os.environ["INCLUDE_CRYPTO"] = "true" if _settings["include_crypto"] else "false"
 
 
 def _scheduled_scan():
@@ -121,6 +123,8 @@ def update_settings():
         _settings["risk_per_trade"] = float(body["risk_per_trade"])
     if "max_positions" in body:
         _settings["max_positions"] = int(body["max_positions"])
+    if "include_crypto" in body:
+        _settings["include_crypto"] = bool(body["include_crypto"])
     _apply_settings()
     logger.info("Settings updated: %s", _settings)
     return jsonify(_settings)
