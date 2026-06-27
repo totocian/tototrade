@@ -23,6 +23,21 @@ _scan_interval = int(os.getenv("SCAN_INTERVAL_MINUTES", "15"))
 _last_scan: dict = {}
 _scheduler = BackgroundScheduler()
 
+# Runtime-editable settings
+_settings = {
+    "stop_loss_pct": float(os.getenv("STOP_LOSS_PCT", "0.05")),
+    "allowed_sectors": os.getenv("ALLOWED_SECTORS", ""),
+    "risk_per_trade": float(os.getenv("RISK_PER_TRADE", "0.02")),
+    "max_positions": int(os.getenv("MAX_POSITIONS", "10")),
+}
+
+
+def _apply_settings():
+    os.environ["STOP_LOSS_PCT"] = str(_settings["stop_loss_pct"])
+    os.environ["ALLOWED_SECTORS"] = _settings["allowed_sectors"]
+    os.environ["RISK_PER_TRADE"] = str(_settings["risk_per_trade"])
+    os.environ["MAX_POSITIONS"] = str(_settings["max_positions"])
+
 
 def _scheduled_scan():
     global _last_scan
@@ -51,6 +66,7 @@ def status():
         "scan_interval_minutes": _scan_interval,
         "last_scan": _last_scan,
         "account": account,
+        "settings": _settings,
     })
 
 
@@ -87,6 +103,27 @@ def toggle_mode():
         _live_trading = not _live_trading
     logger.info("Trading mode set to live=%s", _live_trading)
     return jsonify({"live_trading": _live_trading})
+
+
+@app.route("/api/settings", methods=["GET"])
+def get_settings():
+    return jsonify(_settings)
+
+
+@app.route("/api/settings", methods=["POST"])
+def update_settings():
+    body = request.get_json(silent=True) or {}
+    if "stop_loss_pct" in body:
+        _settings["stop_loss_pct"] = float(body["stop_loss_pct"])
+    if "allowed_sectors" in body:
+        _settings["allowed_sectors"] = str(body["allowed_sectors"])
+    if "risk_per_trade" in body:
+        _settings["risk_per_trade"] = float(body["risk_per_trade"])
+    if "max_positions" in body:
+        _settings["max_positions"] = int(body["max_positions"])
+    _apply_settings()
+    logger.info("Settings updated: %s", _settings)
+    return jsonify(_settings)
 
 
 if __name__ == "__main__":
