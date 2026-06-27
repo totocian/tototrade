@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TotoTrade Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+    header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 20px; color: #58a6ff; font-weight: 600; }
+    .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .badge-paper { background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb; }
+    .badge-live  { background: #3fb95033; color: #3fb950; border: 1px solid #3fb950; }
+    main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+    .card h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8b949e; margin-bottom: 8px; }
+    .card .value { font-size: 24px; font-weight: 700; color: #e6edf3; }
+    .card .sub { font-size: 12px; color: #8b949e; margin-top: 4px; }
+    section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 20px; }
+    section header { padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+    section header h2 { font-size: 14px; font-weight: 600; color: #e6edf3; }
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 10px 16px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8b949e; border-bottom: 1px solid #21262d; }
+    td { padding: 10px 16px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+    tr:last-child td { border-bottom: none; }
+    .pos { color: #3fb950; }
+    .neg { color: #f85149; }
+    .btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background .15s; }
+    .btn:hover { background: #30363d; }
+    .btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+    .btn-primary:hover { background: #388bfd; }
+    .empty { padding: 24px 16px; text-align: center; color: #8b949e; }
+    #toast { position: fixed; bottom: 24px; right: 24px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 20px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>TotoTrade</h1>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <span id="mode-badge" class="badge badge-paper">PAPER</span>
+    <button class="btn" id="toggle-mode-btn">Switch Mode</button>
+    <button class="btn btn-primary" id="scan-btn">Run Scan</button>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <div class="card"><h3>Portfolio Value</h3><div class="value" id="portfolio-value">—</div></div>
+    <div class="card"><h3>Cash</h3><div class="value" id="cash">—</div></div>
+    <div class="card"><h3>Buying Power</h3><div class="value" id="buying-power">—</div></div>
+    <div class="card"><h3>Open Positions</h3><div class="value" id="position-count">—</div><div class="sub" id="last-scan-time"></div></div>
+  </div>
+
+  <section>
+    <header><h2>Positions</h2><button class="btn" id="refresh-positions-btn">Refresh</button></header>
+    <div id="positions-container"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section>
+    <header><h2>Trade Log</h2><span id="trade-count" style="font-size:12px;color:#8b949e;"></span></header>
+    <div id="trades-container"><div class="empty">Loading…</div></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const fmt = (n, dec=2) => n == null ? '—' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:dec, maximumFractionDigits:dec});
+const pct = n => n == null ? '—' : (n >= 0 ? '+' : '') + (n*100).toFixed(2) + '%';
+const cls = n => n >= 0 ? 'pos' : 'neg';
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+async function loadStatus() {
+  const res = await fetch('/api/status');
+  const d = await res.json();
+  document.getElementById('portfolio-value').textContent = fmt(d.account?.portfolio_value);
+  document.getElementById('cash').textContent = fmt(d.account?.cash);
+  document.getElementById('buying-power').textContent = fmt(d.account?.buying_power);
+  const badge = document.getElementById('mode-badge');
+  badge.textContent = d.live_trading ? 'LIVE' : 'PAPER';
+  badge.className = 'badge ' + (d.live_trading ? 'badge-live' : 'badge-paper');
+  if (d.last_scan?.time) {
+    document.getElementById('last-scan-time').textContent = 'Last scan: ' + new Date(d.last_scan.time).toLocaleTimeString();
+  }
+}
+
+async function loadPositions() {
+  const res = await fetch('/api/positions');
+  const positions = await res.json();
+  document.getElementById('position-count').textContent = Array.isArray(positions) ? positions.length : '—';
+  const container = document.getElementById('positions-container');
+  if (!Array.isArray(positions) || positions.length === 0) {
+    container.innerHTML = '<div class="empty">No open positions</div>';
+    return;
+  }
+  container.innerHTML = `<table>
+    <thead><tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Current</th><th>Market Value</th><th>P&L</th><th>P&L %</th></tr></thead>
+    <tbody>${positions.map(p => `<tr>
+      <td><strong>${p.symbol}</strong></td>
+      <td>${p.qty}</td>
+      <td>${fmt(p.avg_entry_price)}</td>
+      <td>${fmt(p.current_price)}</td>
+      <td>${fmt(p.market_value)}</td>
+      <td class="${cls(p.unrealized_pl)}">${fmt(p.unrealized_pl)}</td>
+      <td class="${cls(p.unrealized_plpc)}">${pct(p.unrealized_plpc)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+async function loadTrades() {
+  const res = await fetch('/api/trades?limit=50');
+  const trades = await res.json();
+  document.getElementById('trade-count').textContent = trades.length + ' entries';
+  const container = document.getElementById('trades-container');
+  if (!trades.length) {
+    container.innerHTML = '<div class="empty">No trades recorded yet</div>';
+    return;
+  }
+  const rows = [...trades].reverse().map(t => `<tr>
+    <td>${new Date(t.time).toLocaleString()}</td>
+    <td><strong>${t.symbol}</strong></td>
+    <td class="${t.action==='BUY'?'pos':'neg'}">${t.action}</td>
+    <td>${t.score != null ? t.score : '—'}</td>
+    <td>${t.qty != null ? t.qty : '—'}</td>
+    <td>${t.price != null ? fmt(t.price) : '—'}</td>
+  </tr>`).join('');
+  container.innerHTML = `<table>
+    <thead><tr><th>Time</th><th>Symbol</th><th>Action</th><th>Score</th><th>Qty</th><th>Price</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+document.getElementById('toggle-mode-btn').addEventListener('click', async () => {
+  const res = await fetch('/api/mode', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+  const d = await res.json();
+  toast('Switched to ' + (d.live_trading ? 'LIVE' : 'PAPER') + ' trading');
+  loadStatus();
+});
+
+document.getElementById('scan-btn').addEventListener('click', async () => {
+  document.getElementById('scan-btn').disabled = true;
+  document.getElementById('scan-btn').textContent = 'Scanning…';
+  try {
+    const res = await fetch('/api/scan', {method:'POST'});
+    const d = await res.json();
+    toast(`Scan done — bought: ${(d.bought||[]).join(', ')||'none'} | sold: ${(d.sold||[]).join(', ')||'none'}`);
+    loadStatus(); loadPositions(); loadTrades();
+  } finally {
+    document.getElementById('scan-btn').disabled = false;
+    document.getElementById('scan-btn').textContent = 'Run Scan';
+  }
+});
+
+document.getElementById('refresh-positions-btn').addEventListener('click', loadPositions);
+
+async function refresh() { await Promise.all([loadStatus(), loadPositions(), loadTrades()]); }
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
